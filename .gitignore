@@ -1,0 +1,7 @@
+node_modules/
+*.wav
+cues.json
+out.mp4
+sheet.png
+final-sheet.png
+.DS_Store

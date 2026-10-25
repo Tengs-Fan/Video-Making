@@ -1,0 +1,10 @@
+{
+  "name": "code-video",
+  "description": "Make MP4 videos by having Claude write a program that draws every frame, rendered with headless Chromium and ffmpeg. Includes a renderer, a determinism and quality checker, contact sheets for visual review and a cue-timed soundtrack synthesizer.",
+  "version": "0.1.0",
+  "author": { "name": "Tengs-Fan", "url": "https://github.com/Tengs-Fan" },
+  "homepage": "https://github.com/Tengs-Fan/Video-Making",
+  "repository": "https://github.com/Tengs-Fan/Video-Making",
+  "license": "MIT",
+  "keywords": ["video", "motion-graphics", "animation", "ffmpeg", "playwright"]
+}

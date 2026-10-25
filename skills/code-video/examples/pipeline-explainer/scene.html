@@ -1,0 +1,292 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>draw(f) demo scene</title>
+<style>
+  html, body { margin: 0; padding: 0; background: #0f4c45; overflow: hidden; }
+  canvas { display: block; }
+</style>
+</head>
+<body>
+<canvas id="c" width="1280" height="720"></canvas>
+<script>
+// A 15 s explainer drawn by one pure function: drawFrame(f) paints frame f and
+// reads nothing else (no clock, no timers, no unseeded randomness), so any frame
+// renders the same in any order. render.mjs reads window.VIDEO and calls drawFrame.
+
+const W = 1280, H = 720, FPS = 30, FRAMES = 450;
+
+// Shot boundaries in seconds; the soundtrack reads the same cues.
+const SHOT = { s1: 0, s2: 4.0, s3: 8.5, s4: 12.5, end: 15.0 };
+
+const CODE = [
+  'function draw(f) {',
+  '  const t = f / 30;',
+  '  const p = ease(t / 3);',
+  '  ball.x = 120 + 380 * p;',
+  '  paint(ball);',
+  '}',
+];
+const TYPE_START = SHOT.s2 + 0.3, CHAR_DT = 0.028;
+
+// Character reveal times for the typing ticks (one cue every 3 characters).
+function typingCues() {
+  const cues = [];
+  let i = 0;
+  for (const line of CODE) for (let c = 0; c < line.length; c++, i++)
+    if (line[c] !== ' ' && i % 3 === 0) cues.push(+(TYPE_START + i * CHAR_DT).toFixed(3));
+  return cues;
+}
+
+window.VIDEO = {
+  width: W, height: H, fps: FPS, frames: FRAMES,
+  cues: {
+    cuts: [SHOT.s2, SHOT.s3, SHOT.s4],
+    ticks: typingCues(),
+    pops: [SHOT.s3 + 2.6, SHOT.s4 + 1.1],
+    impact: SHOT.s4 + 1.6,
+  },
+};
+
+const C = {
+  ground: '#0f4c45', ground2: '#f4f1e8', ink: '#f4f1e8', inkDark: '#10302c',
+  accent: '#ffb703', muted: '#8fc3b8', code: '#0b3833', red: '#e76f51',
+};
+const SANS = '"Inter", "Helvetica Neue", Arial, sans-serif';
+const MONO = '"JetBrains Mono", "DejaVu Sans Mono", monospace';
+
+const ctx = document.getElementById('c').getContext('2d');
+
+const clamp = (x, a = 0, b = 1) => Math.min(b, Math.max(a, x));
+const seg = (t, a, b) => clamp((t - a) / (b - a));
+const outCubic = x => 1 - Math.pow(1 - x, 3);
+const inOutCubic = x => x < 0.5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2;
+const outBack = x => { const c = 1.4; return 1 + (c + 1) * Math.pow(x - 1, 3) + c * Math.pow(x - 1, 2); };
+const lerp = (a, b, p) => a + (b - a) * p;
+
+// Deterministic per-frame noise: a hash of integers, never Math.random().
+function hash(n) { n = (n ^ 61) ^ (n >>> 16); n = n + (n << 3); n ^= n >>> 4; n = Math.imul(n, 0x27d4eb2d); n ^= n >>> 15; return (n >>> 0) / 4294967296; }
+
+function text(str, x, y, size, color, weight = 700, font = SANS, align = 'left') {
+  ctx.font = `${weight} ${size}px ${font}`;
+  ctx.fillStyle = color;
+  ctx.textAlign = align;
+  ctx.textBaseline = 'alphabetic';
+  ctx.fillText(str, x, y);
+}
+
+function roundRect(x, y, w, h, r, fill) {
+  ctx.beginPath();
+  ctx.roundRect(x, y, w, h, r);
+  ctx.fillStyle = fill;
+  ctx.fill();
+}
+
+// Shot 1: the premise, set big. Each line is revealed by a left-to-right wipe;
+// the first is already in place on frame 0, which players use as the thumbnail.
+function shot1(t) {
+  ctx.fillStyle = C.ground; ctx.fillRect(0, 0, W, H);
+  const lines = [
+    { s: 'Claude can’t output', y: 250, at: -0.6, color: C.ink },
+    { s: 'a video file.', y: 350, at: 0.1, color: C.ink },
+    { s: 'It writes a program', y: 500, at: 1.9, color: C.accent },
+    { s: 'that draws one.', y: 600, at: 2.2, color: C.accent },
+  ];
+  for (const l of lines) {
+    const p = outCubic(seg(t, l.at, l.at + 0.55));
+    if (p <= 0) continue;
+    ctx.save();
+    ctx.beginPath(); ctx.rect(96, l.y - 100, 1100 * p, 130); ctx.clip();
+    text(l.s, 96 + (1 - p) * -40, l.y, 92, l.color, 800);
+    ctx.restore();
+  }
+}
+
+// Shot 2: the code on the left, its output on the right, both driven by f.
+function shot2(t, f) {
+  // Colour flood from the right edge: the new shot is revealed over the last
+  // frame of shot 1, so no frame of the transition is an empty ground.
+  const flood = inOutCubic(seg(t, SHOT.s2, SHOT.s2 + 0.4));
+  if (flood < 1) {
+    shot1(SHOT.s2);
+    ctx.save();
+    ctx.beginPath(); ctx.rect(W * (1 - flood), 0, W * flood + 1, H); ctx.clip();
+  }
+  ctx.fillStyle = C.ground2; ctx.fillRect(0, 0, W, H);
+
+  // Code card.
+  roundRect(64, 120, 640, 400, 18, C.code);
+  let shown = Math.floor((t - TYPE_START) / CHAR_DT);
+  ctx.save();
+  for (let i = 0; i < CODE.length; i++) {
+    const line = CODE[i];
+    const n = clamp(shown, 0, line.length);
+    shown -= line.length;
+    const y = 190 + i * 54;
+    text(String(i + 1), 96, y, 22, '#4f8c82', 500, MONO);
+    if (n > 0) {
+      const s = line.slice(0, n);
+      // Highlight the frame number f wherever it appears.
+      text(s, 140, y, 28, C.ink, 500, MONO);
+      if (i === 0 && n >= 15) text('f', 140 + ctx.measureText('function draw(').width, y, 28, C.accent, 700, MONO);
+    }
+    if (n > 0 && n < line.length && Math.floor(f / 8) % 2 === 0) {
+      ctx.font = `500 28px ${MONO}`;
+      ctx.fillStyle = C.accent;
+      ctx.fillRect(140 + ctx.measureText(line.slice(0, n)).width + 2, y - 24, 3, 30);
+    }
+  }
+  ctx.restore();
+
+  // Preview card: the ball the code describes, at this frame.
+  roundRect(736, 120, 480, 400, 18, '#ffffff');
+  ctx.strokeStyle = '#d8d2c2'; ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.moveTo(776, 400); ctx.lineTo(1176, 400); ctx.stroke();
+  const local = clamp(t - (SHOT.s2 + 1.4), 0, 3);
+  const p = inOutCubic(local / 3);
+  const bx = 776 + 40 + 320 * p;
+  ctx.fillStyle = 'rgba(16,48,44,0.18)';
+  ctx.beginPath(); ctx.ellipse(bx, 402, 34, 7, 0, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = C.red;
+  ctx.beginPath(); ctx.arc(bx, 360, 38, 0, Math.PI * 2); ctx.fill();
+  text('frame', 776, 176, 22, '#6c675c', 600);
+  text(String(f).padStart(4, '0'), 776, 236, 56, C.inkDark, 800, MONO);
+  text(`t = ${(f / FPS).toFixed(2)} s`, 1176, 236, 26, '#6c675c', 500, MONO, 'right');
+
+  // Caption lands once typing is done and holds.
+  const cp = outCubic(seg(t, SHOT.s2 + 1.6, SHOT.s2 + 2.0));
+  ctx.globalAlpha = cp;
+  text('Every frame is a pure function of its number.', 64, 610 + (1 - cp) * 14, 40, C.inkDark, 700);
+  ctx.globalAlpha = 1;
+  if (flood < 1) ctx.restore();
+}
+
+// A tiny rendering of the shot-2 preview at frame k, used as a film frame.
+function thumb(x, y, w, h, k) {
+  roundRect(x, y, w, h, 8, '#ffffff');
+  const p = inOutCubic(clamp(k / 449, 0, 1));
+  ctx.fillStyle = C.red;
+  ctx.beginPath(); ctx.arc(x + w * (0.18 + 0.64 * p), y + h * 0.58, h * 0.16, 0, Math.PI * 2); ctx.fill();
+  text(String(k).padStart(3, '0'), x + 8, y + 20, 15, '#6c675c', 600, MONO);
+}
+
+// Shot 3: frames run along a strip into ffmpeg; the MP4 comes out.
+function shot3(t, f) {
+  const whip = seg(t, SHOT.s3, SHOT.s3 + 0.25);
+  ctx.fillStyle = C.inkDark; ctx.fillRect(0, 0, W, H);
+  // Whip: the light ground slides off to the left.
+  if (whip < 1) { ctx.fillStyle = C.ground2; ctx.fillRect(-W * inOutCubic(whip), 0, W, H); }
+
+  const lt = t - SHOT.s3;
+  text('A headless browser calls draw(f) 450 times.', 64, 120, 40, C.ink, 700);
+  const l2 = outCubic(seg(lt, 0.9, 1.3));
+  ctx.globalAlpha = l2;
+  text('ffmpeg stitches the frames into an MP4.', 64, 172, 40, C.muted, 700);
+  ctx.globalAlpha = 1;
+
+  // Strip of frames scrolling right, into the encoder box.
+  const stripY = 350, tw = 150, th = 96, gap = 18;
+  const scroll = lt * 260;
+  ctx.save();
+  ctx.beginPath(); ctx.rect(0, stripY - 30, 800, th + 60); ctx.clip();
+  ctx.fillStyle = '#1d4a44';
+  ctx.fillRect(0, stripY - 22, 800, th + 44);
+  for (let i = -1; i < 7; i++) {
+    const x = ((i * (tw + gap) + scroll) % (7 * (tw + gap))) - tw;
+    const k = (Math.floor((i * (tw + gap) + scroll) / (7 * (tw + gap))) * -7 + 6 - i) * 23 + f % 23;
+    thumb(x, stripY, tw, th, ((k % 450) + 450) % 450);
+    // Sprocket holes.
+    for (let s = 0; s < 6; s++) {
+      ctx.fillStyle = C.inkDark;
+      ctx.fillRect(x + 8 + s * 25, stripY - 16, 12, 8);
+      ctx.fillRect(x + 8 + s * 25, stripY + th + 8, 12, 8);
+    }
+  }
+  ctx.restore();
+
+  // Encoder box.
+  roundRect(800, stripY - 40, 200, th + 80, 16, C.accent);
+  text('ffmpeg', 900, stripY + 58, 40, C.inkDark, 800, MONO, 'center');
+  text('libx264', 900, stripY + 92, 20, C.inkDark, 600, MONO, 'center');
+
+  // Output file lands with a small overshoot.
+  const op = seg(lt, 2.4, 2.9);
+  if (op > 0) {
+    const s = outBack(op);
+    ctx.save();
+    ctx.translate(1120, stripY + 48);
+    ctx.scale(s, s);
+    roundRect(-90, -70, 180, 140, 14, C.ink);
+    text('demo.mp4', 0, -12, 26, C.inkDark, 800, MONO, 'center');
+    text('15 s · 30 fps', 0, 24, 20, '#5a6b67', 600, MONO, 'center');
+    ctx.restore();
+  }
+  const fp = outCubic(seg(lt, 2.9, 3.3));
+  ctx.globalAlpha = fp;
+  text('1280×720 · H.264 · yuv420p', 1210, 620, 24, C.muted, 600, MONO, 'right');
+  ctx.globalAlpha = 1;
+}
+
+// Shot 4: the determinism check, then the end card.
+function shot4(t) {
+  ctx.fillStyle = C.ground; ctx.fillRect(0, 0, W, H);
+  const lt = t - SHOT.s4;
+  const iris = outCubic(seg(lt, 0, 0.3));
+  if (iris < 1) {
+    ctx.fillStyle = C.inkDark; ctx.fillRect(0, 0, W, H);
+    ctx.save(); ctx.beginPath(); ctx.arc(1120, 348, 1500 * iris, 0, Math.PI * 2); ctx.clip();
+    ctx.fillStyle = C.ground; ctx.fillRect(0, 0, W, H); ctx.restore();
+  }
+  text('draw(137)', 270, 170, 40, C.ink, 700, MONO, 'center');
+  text('draw(137), later', 1010, 170, 40, C.ink, 700, MONO, 'center');
+  thumb(110, 200, 320, 205, 137);
+  thumb(850, 200, 320, 205, 137);
+  text('=', 640, 330, 110, C.accent, 800, SANS, 'center');
+
+  const cp = seg(lt, 1.1, 1.4);
+  if (cp > 0) {
+    ctx.save();
+    ctx.translate(640, 520);
+    const s = outBack(cp);
+    ctx.scale(s, s);
+    roundRect(-330, -52, 660, 104, 52, C.accent);
+    text('✓  identical, pixel for pixel', 0, 14, 38, C.inkDark, 800, SANS, 'center');
+    ctx.restore();
+  }
+  const ep = outCubic(seg(lt, 1.6, 2.0));
+  ctx.globalAlpha = ep;
+  text('Same code, same video. Fix a frame, re-render.', 640, 660, 34, C.ink, 600, SANS, 'center');
+  ctx.globalAlpha = 1;
+}
+
+// Light film grain from the hash, seeded by the frame number.
+function grain(f) {
+  ctx.fillStyle = 'rgba(255,255,255,0.035)';
+  for (let i = 0; i < 260; i++) {
+    const x = hash(f * 977 + i * 2) * W, y = hash(f * 977 + i * 2 + 1) * H;
+    ctx.fillRect(x, y, 2, 2);
+  }
+}
+
+window.drawFrame = function (f) {
+  const t = f / FPS;
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.globalAlpha = 1;
+  if (t < SHOT.s2) shot1(t);
+  else if (t < SHOT.s3) shot2(t, f);
+  else if (t < SHOT.s4) shot3(t, f);
+  else shot4(t);
+  grain(f);
+};
+
+// Opened in a normal browser, the scene previews itself. The renderer adds
+// ?render to the URL, so this preview loop never runs during capture.
+if (!location.search.includes('render')) {
+  let f = 0;
+  const tick = () => { window.drawFrame(f); f = (f + 1) % FRAMES; requestAnimationFrame(tick); };
+  document.fonts.ready.then(tick);
+}
+</script>
+</body>
+</html>

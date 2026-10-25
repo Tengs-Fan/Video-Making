@@ -1,0 +1,14 @@
+{
+  "name": "code-video",
+  "owner": { "name": "Tengs-Fan", "url": "https://github.com/Tengs-Fan" },
+  "description": "The code-video skill for Claude Code.",
+  "plugins": [
+    {
+      "name": "code-video",
+      "source": "./",
+      "description": "Make MP4 videos from code: draw(f) scenes rendered with headless Chromium and ffmpeg, with gates, contact sheets and a synthesized soundtrack.",
+      "homepage": "https://github.com/Tengs-Fan/Video-Making",
+      "license": "MIT"
+    }
+  ]
+}
